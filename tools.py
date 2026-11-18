@@ -12,7 +12,7 @@ from collections import Counter
 plt.rcParams['font.sans-serif'] = ['SimHei'] 
 plt.rcParams['axes.unicode_minus'] = False
 
-# 读取文档
+# 读取各种文档
 def read_document(file_path):
     ext = os.path.splitext(file_path)[1].lower()
     text = ""
@@ -43,7 +43,7 @@ def read_document(file_path):
     except Exception as e:
         return f"读取文档失败: {str(e)}"
 
-# 原有CSV读取
+# 读取 CSV
 def read_csv(file_path):
     try:
         df = pd.read_csv(file_path)
@@ -51,7 +51,7 @@ def read_csv(file_path):
     except Exception as e:
         return f"读取失败: {str(e)}"
 
-# 原有数据计算
+# 计算统计量
 def calculate_stats(file_path, column_name):
     try:
         df = pd.read_csv(file_path)
@@ -61,33 +61,48 @@ def calculate_stats(file_path, column_name):
     except Exception as e:
         return f"计算失败: {str(e)}"
 
-# 原有CSV画图
-def generate_chart(file_path, x_col, y_col):
+# 【已升级】生成表格图表（支持柱状图、折线图、饼图）
+def generate_chart(file_path, x_col, y_col, chart_type="bar"):
     try:
         df = pd.read_csv(file_path)
         plt.figure(figsize=(8, 5))
-        plt.bar(df[x_col], df[y_col], color='skyblue')
-        plt.title(f'{x_col} vs {y_col}')
+        
+        # 根据 chart_type 画不同的图
+        if chart_type == "line":
+            plt.plot(df[x_col], df[y_col], marker='o', color='#1f77b4', linewidth=2)
+            plt.title(f'{x_col} 趋势图 (折线图)')
+        elif chart_type == "pie":
+            # 饼图只取前5个数据，防止标签重叠看不清
+            df_pie = df.head(5)
+            plt.pie(df_pie[y_col], labels=df_pie[x_col], autopct='%1.1f%%', startangle=90)
+            plt.title(f'{x_col} 占比图 (饼图)')
+        else:
+            # 默认画柱状图
+            plt.bar(df[x_col], df[y_col], color='skyblue')
+            plt.title(f'{x_col} vs {y_col} (柱状图)')
+            
+        if chart_type != "pie":
+            plt.xlabel(x_col)
+            plt.ylabel(y_col)
+            
         img_path = "chart_output.png"
         plt.savefig(img_path)
         plt.close()
-        return f"表格图表已生成"
+        return f"成功生成 {chart_type} 类型的图表"
     except Exception as e:
         return f"生成图表失败: {str(e)}"
 
-# 【新增】：文档词频分析画图
+# 生成文档词频图
 def generate_word_freq_chart(file_path):
     try:
-        # 先获取文本
         text = read_document(file_path)
         if "失败" in text or "不支持" in text:
             return text
         
-        # 使用 jieba 分词，只保留长度大于1的词
         words = jieba.lcut(text)
-        words = [w for w in words if len(w) > 1 and w not in ['我们', '可以', '这个', '没有', '就是', '一个', '进行', '通过', '如果']]
+        # 过滤掉单字和常见无意义词
+        words = [w for w in words if len(w) > 1 and w not in ['我们', '可以', '这个', '没有', '就是', '一个', '进行', '通过', '如果', '以及', '因为', '所以']]
         
-        # 统计前10个高频词
         word_counts = Counter(words).most_common(10)
         if not word_counts:
             return "文档内容太少，无法提取关键词。"
@@ -107,6 +122,7 @@ def generate_word_freq_chart(file_path):
     except Exception as e:
         return f"生成词频图表失败: {str(e)}"
 
+# 生成最终报告
 def generate_report(report_text):
     try:
         md_content = f"# 分析报告\n\n{report_text}\n\n"
@@ -118,12 +134,21 @@ def generate_report(report_text):
     except Exception as e:
         return f"生成报告失败: {str(e)}"
 
-# 【更新工具说明书】
+# 工具说明书（已更新）
 TOOLS_SCHEMA = [
     {"name": "read_document", "description": "读取TXT/PDF/Word/PPT等文档的文字内容", "parameters": {"file_path": "文件路径"}},
     {"name": "read_csv", "description": "读取CSV表格数据", "parameters": {"file_path": "文件路径"}},
     {"name": "calculate_stats", "description": "计算CSV某列的总和和平均值", "parameters": {"file_path": "文件路径", "column_name": "列名"}},
-    {"name": "generate_chart", "description": "针对CSV表格生成柱状图", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴"}},
-    {"name": "generate_word_freq_chart", "description": "针对TXT/PDF/Word/PPT等文档生成高频词柱状图（当用户要求对文档画图时使用）", "parameters": {"file_path": "文件路径"}},
-    {"name": "generate_report", "description": "根据分析结果生成最终报告", "parameters": {"report_text": "报告内容"}}
+    {
+        "name": "generate_chart", 
+        "description": "针对CSV表格生成图表。支持柱状图(bar)、折线图(line)、饼状图(pie)", 
+        "parameters": {
+            "file_path": "文件路径", 
+            "x_col": "X轴列名", 
+            "y_col": "Y轴列名（画饼图时必须是数值列）", 
+            "chart_type": "图表类型，可选值：bar, line, pie。默认bar"
+        }
+    },
+    {"name": "generate_word_freq_chart", "description": "针对TXT/PDF/Word/PPT等文档生成高频词柱状图", "parameters": {"file_path": "文件路径"}},
+    {"name": "generate_report", "description": "生成最终报告", "parameters": {"report_text": "报告内容"}}
 ]
