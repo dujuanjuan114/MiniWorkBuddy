@@ -7,9 +7,13 @@ import tools
 
 try:
     API_KEY = st.secrets["DEEPSEEK_API_KEY"]
+    ZHIPU_API_KEY = st.secrets["ZHIPU_API_KEY"] # 读取智谱的Key
 except Exception:
     API_KEY = os.getenv("DEEPSEEK_API_KEY")
+    ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY")
+
 if not API_KEY: API_KEY = "" 
+if not ZHIPU_API_KEY: ZHIPU_API_KEY = ""
 
 client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
 
@@ -31,18 +35,14 @@ for tool in tools.TOOLS_SCHEMA:
 def run_agent(user_task, file_path, status_callback=None):
     ext = os.path.splitext(file_path)[1].lower()
     
-    # 【核心提示词】：教会大模型如何提取多个变量的数据
     system_prompt = f"""你是一个极其强大的全能数据助理。当前文件路径：'{file_path}'，类型：'{ext}'。
 
 规则如下：
-1. 如果文件是 CSV 且只需单变量画图，用 `generate_chart`。
-2. 如果文件是文档(Word/PDF等)，且用户要求画图：
-   - 必须先调用 `read_document` 阅读内容。
-   - **重点**：如果文档里有多个变量的数据（例如同时有最高气温和最低气温），你必须把它们全部提取出来，调用 `generate_custom_chart` 画在同一张图上。
-   - 参数要求：
-     - `x_data_str`: 必须传类似 '["11月1日", "11月2日"]' 的 JSON 字符串。
-     - `series_data_str`: 必须传字典格式的 JSON 字符串，如 '{{"最高气温": [20, 14], "最低气温": [2, 1]}}'。绝对不能用中文引号或单引号！
-3. 如果用户要求总结：调用 `read_document` 并在对话输出。"""
+1. 如果文件是图片(.jpg, .png, .jpeg)：必须调用 `read_image` 来识别图片内容。你可以让 `read_image` 返回表格，然后你再基于它提取数据画图。
+2. 如果文件是 CSV：单变量画图用 `generate_chart`。
+3. 如果文件是文档(Word/PDF)：先调用 `read_document`，如果包含多个变量，调用 `generate_custom_chart`。
+4. 画自定义图时，`x_data_str` 和 `series_data_str` 必须传标准的 JSON 字符串，不能有中文标点。
+5. 只有用户要求生成报告时，才调用 `generate_report`。"""
 
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_task}]
     
@@ -69,15 +69,13 @@ def run_agent(user_task, file_path, status_callback=None):
 
             result = ""
             if func_name == "read_document": result = tools.read_document(args.get("file_path", file_path))
+            elif func_name == "read_image": result = tools.read_image(args.get("file_path", file_path), ZHIPU_API_KEY)
             elif func_name == "read_csv": result = tools.read_csv(args.get("file_path", file_path))
             elif func_name == "calculate_stats": result = tools.calculate_stats(args.get("file_path", file_path), args.get("column_name"))
             elif func_name == "generate_chart": 
                 result = tools.generate_chart(args.get("file_path", file_path), args.get("x_col"), args.get("y_col"), args.get("chart_type", "bar"))
             elif func_name == "generate_custom_chart":
-                x_str = args.get("x_data_str", "[]")
-                # 这里接收多变量字典
-                series_str = args.get("series_data_str", "{}")
-                result = tools.generate_custom_chart(x_str, series_str, args.get("chart_type", "line"), args.get("title", "数据分析"))
+                result = tools.generate_custom_chart(args.get("x_data_str", "[]"), args.get("series_data_str", "{}"), args.get("chart_type", "line"), args.get("title", "数据分析"))
             elif func_name == "generate_word_freq_chart": 
                 result = tools.generate_word_freq_chart(args.get("file_path", file_path))
             elif func_name == "generate_report": 

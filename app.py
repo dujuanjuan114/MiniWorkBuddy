@@ -13,16 +13,17 @@ if "has_run" not in st.session_state:
     st.session_state.has_run = False
 
 st.sidebar.header("1. 上传文件")
+# 【修改】：增加图片后缀支持
 uploaded_file = st.sidebar.file_uploader(
-    "支持 CSV, TXT, PDF, Word, PPT", 
-    type=["csv", "txt", "pdf", "docx", "pptx"]
+    "支持 CSV, TXT, PDF, Word, PPT, 图片", 
+    type=["csv", "txt", "pdf", "docx", "pptx", "png", "jpg", "jpeg"]
 )
 
 col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("2. 下达任务")
-    user_task = st.text_area("指令：", "帮我读取数据并画图。", height=100)
+    user_task = st.text_area("指令：", "帮我读取这个图片里的表格，并画成柱状图。", height=100)
     
     if st.button("🚀 开始执行", type="primary"):
         if uploaded_file is None:
