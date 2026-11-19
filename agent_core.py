@@ -31,19 +31,18 @@ for tool in tools.TOOLS_SCHEMA:
 def run_agent(user_task, file_path, status_callback=None):
     ext = os.path.splitext(file_path)[1].lower()
     
-    # 【终极提示词】：明确告诉它怎么处理文本中的数据
-    system_prompt = f"""你是一个极其强大的全能数据助理。当前文件路径：'{file_path}'，文件类型：'{ext}'。
+    # 【核心提示词】：教会大模型如何提取多个变量的数据
+    system_prompt = f"""你是一个极其强大的全能数据助理。当前文件路径：'{file_path}'，类型：'{ext}'。
 
-请严格遵循以下规则：
-1. 【CSV文件】：画图必须用 `generate_chart`（读取列名）。
-2. 【文档文件(Word/PDF/TXT)】：如果你要画词频图，用 `generate_word_freq_chart`。
-3. 【关键：文档数据提取画图】：如果用户要求根据文档里的具体数据画图（比如“提取温度变化画折线图”），你必须：
-   - 先调用 `read_document` 阅读内容。
-   - 然后，在脑子里把数据提取出来，转换成列表格式。
-   - 最后，调用 `generate_custom_chart`。
-   - 注意：`x_data_str` 必须传类似 '["11月1日", "11月2日"]' 的字符串；`y_data_str` 必须传类似 '["20", "14"]' 的字符串。绝对不能传中文逗号。
-4. 如果用户要求总结：调用 `read_document` 并在对话输出。
-5. 只有用户要求“生成报告文件”时，才调用 generate_report。"""
+规则如下：
+1. 如果文件是 CSV 且只需单变量画图，用 `generate_chart`。
+2. 如果文件是文档(Word/PDF等)，且用户要求画图：
+   - 必须先调用 `read_document` 阅读内容。
+   - **重点**：如果文档里有多个变量的数据（例如同时有最高气温和最低气温），你必须把它们全部提取出来，调用 `generate_custom_chart` 画在同一张图上。
+   - 参数要求：
+     - `x_data_str`: 必须传类似 '["11月1日", "11月2日"]' 的 JSON 字符串。
+     - `series_data_str`: 必须传字典格式的 JSON 字符串，如 '{{"最高气温": [20, 14], "最低气温": [2, 1]}}'。绝对不能用中文引号或单引号！
+3. 如果用户要求总结：调用 `read_document` 并在对话输出。"""
 
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_task}]
     
@@ -75,10 +74,10 @@ def run_agent(user_task, file_path, status_callback=None):
             elif func_name == "generate_chart": 
                 result = tools.generate_chart(args.get("file_path", file_path), args.get("x_col"), args.get("y_col"), args.get("chart_type", "bar"))
             elif func_name == "generate_custom_chart":
-                # 接收大模型提取的 JSON 字符串
                 x_str = args.get("x_data_str", "[]")
-                y_str = args.get("y_data_str", "[]")
-                result = tools.generate_custom_chart(x_str, y_str, args.get("chart_type", "line"), args.get("title", "数据分析"))
+                # 这里接收多变量字典
+                series_str = args.get("series_data_str", "{}")
+                result = tools.generate_custom_chart(x_str, series_str, args.get("chart_type", "line"), args.get("title", "数据分析"))
             elif func_name == "generate_word_freq_chart": 
                 result = tools.generate_word_freq_chart(args.get("file_path", file_path))
             elif func_name == "generate_report": 

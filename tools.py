@@ -64,14 +64,14 @@ def read_csv(file_path):
 def calculate_stats(file_path, column_name):
     try:
         df = pd.read_csv(file_path)
-        if column_name not in df.columns: return f"错误：不存在 '{column_name}'。现有列：{list(df.columns)}"
+        if column_name not in df.columns: return f"错误：不存在 '{column_name}'。"
         return f"列 '{column_name}' 总和 = {df[column_name].sum()}, 平均值 = {df[column_name].mean():.2f}"
     except Exception as e: return f"计算失败: {str(e)}"
 
 def generate_chart(file_path, x_col, y_col, chart_type="bar"):
     try:
         df = pd.read_csv(file_path)
-        plt.figure(figsize=(8, 5))
+        plt.figure(figsize=(10, 5))
         
         c_type = str(chart_type).lower()
         if "line" in c_type or "折线" in c_type:
@@ -85,7 +85,7 @@ def generate_chart(file_path, x_col, y_col, chart_type="bar"):
             plt.bar(df[x_col], df[y_col], color='skyblue')
             plt.title(f'{x_col} vs {y_col} 柱状图')
             
-        if "pie" not in str(chart_type).lower() and "饼" not in str(chart_type):
+        if "pie" not in c_type and "饼" not in c_type:
             plt.xlabel(x_col)
             plt.ylabel(y_col)
             
@@ -95,35 +95,46 @@ def generate_chart(file_path, x_col, y_col, chart_type="bar"):
     except Exception as e:
         return f"生成图表失败: {str(e)}"
 
-# 【新增】：万能画图工具，大模型自己提取数据传进来
-def generate_custom_chart(x_data_str, y_data_str, chart_type="line", title="数据分析图"):
+# 【核心升级】：支持多变量同图展示
+def generate_custom_chart(x_data_str, series_data_str, chart_type="line", title="数据分析图"):
     try:
-        # 接收大模型传来的 JSON 字符串列表，并解析成 Python 列表
         x_data = json.loads(x_data_str) if isinstance(x_data_str, str) else x_data_str
-        y_data = json.loads(y_data_str) if isinstance(y_data_str, str) else y_data_str
+        # series_data 应该是一个字典: {"图例1": [值1, 值2], "图例2": [值1, 值2]}
+        series_dict = json.loads(series_data_str) if isinstance(series_data_str, str) else series_data_str
         
-        # 确保 y_data 里的元素是数字
-        y_data = [float(y) for y in y_data]
-
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(10, 6))
         c_type = str(chart_type).lower()
 
-        if "line" in c_type or "折线" in c_type:
-            plt.plot(x_data, y_data, marker='o', color='#1f77b4', linewidth=2)
-        elif "pie" in c_type or "饼" in c_type:
-            # 饼图最多显示前8个，防止太乱
-            plt.pie(y_data[:8], labels=x_data[:8], autopct='%1.1f%%', startangle=90)
+        if "pie" in c_type or "饼" in c_type:
+            # 饼图一般只展示第一个系列的数据（因为饼图表示占比，多系列在一个饼图里没法展示）
+            first_key = list(series_dict.keys())[0]
+            first_data = [float(v) for v in series_dict[first_key]]
+            plt.pie(first_data[:8], labels=x_data[:8], autopct='%1.1f%%', startangle=90)
+            plt.title(f"{title} ({first_key})")
+        elif "bar" in c_type or "柱" in c_type:
+            # 多柱状图（并列柱状图）
+            import numpy as np
+            x_indexes = np.arange(len(x_data))
+            width = 0.8 / len(series_dict)
+            for i, (label, y_data) in enumerate(series_dict.items()):
+                y_data = [float(v) for v in y_data]
+                plt.bar(x_indexes + i * width - 0.4 + width/2, y_data, width=width, label=label)
+            plt.xticks(x_indexes, x_data, rotation=45)
+            plt.legend()
+            plt.title(title)
         else:
-            plt.bar(x_data, y_data, color='skyblue')
-            
-        plt.title(title)
-        if "pie" not in c_type and "饼" not in c_type:
+            # 多折线图
+            for label, y_data in series_dict.items():
+                y_data = [float(v) for v in y_data]
+                plt.plot(x_data, y_data, marker='o', linewidth=2, label=label)
             plt.xticks(rotation=45)
-            
+            plt.legend() # 显示图例
+            plt.title(title)
+
         plt.tight_layout()
         plt.savefig("chart_output.png")
         plt.close()
-        return f"成功根据自定义数据生成 {chart_type} 图表"
+        return f"成功生成包含 {len(series_dict)} 个数据系列的 {chart_type} 图表"
     except Exception as e:
         return f"生成自定义图表失败: {str(e)}"
 
@@ -131,14 +142,11 @@ def generate_word_freq_chart(file_path):
     try:
         text = extract_text(file_path)
         if not text: return "文档内容为空。"
-        
         words = jieba.lcut(text)
         stop_words = ['我们', '可以', '这个', '没有', '就是', '一个', '进行', '通过', '如果', '以及', '因为', '所以', '他们', '自己', '现在', '什么']
         words = [w for w in words if len(w) > 1 and not w.isdigit() and w not in stop_words and w.strip() != '']
-        
         word_counts = Counter(words).most_common(10)
         if not word_counts: return "未提取到有效词汇。"
-
         labels = [item[0] for item in word_counts]
         values = [item[1] for item in word_counts]
 
@@ -162,20 +170,20 @@ def generate_report(report_text):
     except Exception as e: return f"生成失败: {str(e)}"
 
 TOOLS_SCHEMA = [
-    {"name": "read_document", "description": "读取TXT/PDF/Word/PPT等文档的文字内容", "parameters": {"file_path": "文件路径"}},
+    {"name": "read_document", "description": "读取文档文字内容", "parameters": {"file_path": "文件路径"}},
     {"name": "read_csv", "description": "读取CSV表格数据", "parameters": {"file_path": "文件路径"}},
     {"name": "calculate_stats", "description": "计算CSV某列的总和和平均值", "parameters": {"file_path": "文件路径", "column_name": "列名"}},
-    {"name": "generate_chart", "description": "针对CSV文件生成图表", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴", "chart_type": "bar、line或pie"}},
+    {"name": "generate_chart", "description": "针对CSV文件生成单一维度的图表", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴", "chart_type": "bar、line或pie"}},
     {
         "name": "generate_custom_chart", 
-        "description": "从文档中提取具体数据后，生成自定义图表（如提取温度数据画折线图）。你需要自己从文本中提取 X 轴和 Y 轴的数据。", 
+        "description": "从文档中提取具体数据后，生成自定义图表。你可以一次性提取多个变量（如最高温、最低温）画在同一张图上。", 
         "parameters": {
             "x_data_str": "X轴数据，必须是类似 '[\"11月1日\", \"11月2日\"]' 的 JSON 字符串格式", 
-            "y_data_str": "Y轴数据，必须是类似 '[\"20\", \"14\"]' 的 JSON 字符串格式", 
+            "series_data_str": "多变量数据。必须是类似 '{\"最高气温\": [20, 14], \"最低气温\": [2, 1]}' 的字典 JSON 字符串格式。键是图例名，值是数字列表。", 
             "chart_type": "bar、line或pie", 
             "title": "图表标题"
         }
     },
-    {"name": "generate_word_freq_chart", "description": "针对文档生成高频词柱状图（如果用户只想看词频分布时使用）", "parameters": {"file_path": "文件路径"}},
+    {"name": "generate_word_freq_chart", "description": "针对文档生成高频词柱状图", "parameters": {"file_path": "文件路径"}},
     {"name": "generate_report", "description": "生成最终报告", "parameters": {"report_text": "报告内容"}}
 ]
