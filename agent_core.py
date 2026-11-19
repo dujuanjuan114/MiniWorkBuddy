@@ -1,15 +1,28 @@
 # agent_core.py
 import json
+import os
+import streamlit as st
 from openai import OpenAI
 import tools
-import os
 
-# 优先读环境变量（部署在云端用），如果没有，用本地保底的 Key（本地测试用）
-API_KEY = os.getenv("DEEPSEEK_API_KEY")
-if not API_KEY: 
-    API_KEY = "sk-7754c740b2d4467e8d2a6993ced5d608" # 如果你本地测试，记得填你的 Key
-    
+# ================= 安全读取 API Key =================
+# 1. 优先尝试从 Streamlit 云端 Secrets 读取（部署在公网时生效）
+try:
+    API_KEY = st.secrets["DEEPSEEK_API_KEY"]
+except Exception:
+    # 2. 如果云端没有，尝试从系统环境变量读取（本地运行且配置了环境变量时生效）
+    API_KEY = os.getenv("DEEPSEEK_API_KEY")
+
+# 3. 如果都没有，为了防止报错，在这里填入你的 Key 仅供本地测试
+# 【注意：一旦部署到云端，请务必确保这里为 "" 】
+if not API_KEY:
+    API_KEY = "" 
+
+if not API_KEY:
+    st.warning("⚠️ 未检测到 API Key，请检查配置！")
+
 client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
+# ====================================================
 
 # 构建给大模型看的函数调用格式
 function_schemas = []
@@ -30,7 +43,7 @@ for tool in tools.TOOLS_SCHEMA:
 def run_agent(user_task, file_path, status_callback=None):
     ext = os.path.splitext(file_path)[1].lower()
     
-    # 【已升级】系统提示词，教大模型如何选择图表类型
+    # 【核心提示词】：指导大模型在不同文件下如何选择工具和图表类型
     system_prompt = f"""你是一个极其聪明的通用助理。当前用户上传的文件路径：'{file_path}'，类型：'{ext}'。
 
 你的工作流如下：
@@ -50,9 +63,18 @@ def run_agent(user_task, file_path, status_callback=None):
     step_count = 0
     while step_count < 8:
         step_count += 1
-        response = client.chat.completions.create(
-            model="deepseek-chat", messages=messages, tools=function_schemas, tool_choice="auto"
-        )
+        
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat", 
+                messages=messages, 
+                tools=function_schemas, 
+                tool_choice="auto"
+            )
+        except Exception as e:
+            if status_callback: status_callback(f"❌ API 调用失败: {str(e)}")
+            return "调用大模型失败，请检查 API Key 或网络。"
+
         msg = response.choices[0].message
         messages.append(msg)
 
@@ -69,6 +91,7 @@ def run_agent(user_task, file_path, status_callback=None):
             if status_callback: status_callback(f"【步骤{step_count}】调用工具: `{func_name}`")
 
             result = ""
+            # 动态路由执行工具
             if func_name == "read_document": 
                 result = tools.read_document(args.get("file_path", file_path))
             elif func_name == "read_csv": 
@@ -76,7 +99,7 @@ def run_agent(user_task, file_path, status_callback=None):
             elif func_name == "calculate_stats": 
                 result = tools.calculate_stats(args.get("file_path", file_path), args.get("column_name"))
             elif func_name == "generate_chart": 
-                # 【已升级】接收 chart_type 参数
+                # 接收 chart_type 参数
                 c_type = args.get("chart_type", "bar")
                 result = tools.generate_chart(args.get("file_path", file_path), args.get("x_col"), args.get("y_col"), c_type)
             elif func_name == "generate_word_freq_chart": 
@@ -91,8 +114,9 @@ def run_agent(user_task, file_path, status_callback=None):
                 "role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result
             })
 
+            # 如果模型调用了生成报告工具，任务直接结束
             if func_name == "generate_report":
                 if status_callback: status_callback("✅ 报告文件已生成。")
                 return "报告已生成，请在右侧下载。"
                 
-    return "超过最大步数"
+    return "达到最大执行步数，任务终止。"

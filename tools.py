@@ -10,29 +10,26 @@ import jieba
 from collections import Counter
 import urllib.request
 
-# ================= 【核心修复】：云端中文字体动态加载 =================
-font_path = "SimHei.ttf"
-# 如果当前目录没有这个字体文件，就自动从网上下载一个
+# ================= 完美解决云端中文字体乱码 =================
+font_path = "NotoSansSC-Regular.otf"
 if not os.path.exists(font_path):
     try:
-        # 从一个稳定源下载黑体字库
-        url = "https://github.com/StellarCN/scp_zh/raw/master/fonts/SimHei.ttf"
+        # 换用极其稳定的谷歌思源黑体
+        url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf"
         urllib.request.urlretrieve(url, font_path)
     except Exception as e:
         print(f"字体下载失败: {e}")
 
-# 告诉 matplotlib 加载这个字体
 if os.path.exists(font_path):
+    # 强制刷新字体缓存
     fm.fontManager.addfont(font_path)
-    plt.rcParams['font.sans-serif'] = ['SimHei']
-else:
-    # 如果没下载成功，尝试用 Linux 自带的备用字体
-    plt.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei', 'Arial Unicode MS']
-
+    prop = fm.FontProperties(fname=font_path)
+    plt.rcParams['font.family'] = prop.get_name()
 plt.rcParams['axes.unicode_minus'] = False
-# ====================================================================
+# ==========================================================
 
-def read_document(file_path):
+def extract_text(file_path):
+    """只负责提取纯文本，不截断，供画图用"""
     ext = os.path.splitext(file_path)[1].lower()
     text = ""
     try:
@@ -53,14 +50,16 @@ def read_document(file_path):
                 for shape in slide.shapes:
                     if hasattr(shape, "text"):
                         text += shape.text + "\n"
-        else:
-            return f"暂不支持 {ext} 格式"
-        
-        if len(text) > 3000:
-            text = text[:3000] + "\n...(文档过长，已截断)"
-        return f"文档读取成功，内容如下：\n{text}"
-    except Exception as e:
-        return f"读取文档失败: {str(e)}"
+    except: pass
+    return text
+
+def read_document(file_path):
+    """给大模型看的文本（需要截断）"""
+    text = extract_text(file_path)
+    if not text: return "读取失败或文件为空。"
+    if len(text) > 3000:
+        return f"文档读取成功（前3000字）：\n{text[:3000]}..."
+    return f"文档读取成功：\n{text}"
 
 def read_csv(file_path):
     try:
@@ -107,19 +106,18 @@ def generate_chart(file_path, x_col, y_col, chart_type="bar"):
 
 def generate_word_freq_chart(file_path):
     try:
-        text = read_document(file_path)
-        if "失败" in text or "不支持" in text:
-            return text
+        text = extract_text(file_path)
+        if not text: return "文档内容为空。"
         
         words = jieba.lcut(text)
+        stop_words = ['我们', '可以', '这个', '没有', '就是', '一个', '进行', '通过', '如果', '以及', '因为', '所以', '他们', '自己', '现在']
         
-        # 【修复优化】：过滤单字、无意义词，并且过滤掉纯数字
-        stop_words = ['我们', '可以', '这个', '没有', '就是', '一个', '进行', '通过', '如果', '以及', '因为', '所以']
-        words = [w for w in words if len(w) > 1 and w not in stop_words and not w.isdigit()]
+        # 极其严格的过滤：必须是长度大于1的中文词汇，且不是纯数字，不在停用词库中
+        words = [w for w in words if len(w) > 1 and not w.isdigit() and w not in stop_words and w.strip() != '']
         
         word_counts = Counter(words).most_common(10)
         if not word_counts:
-            return "文档内容太少，无法提取关键词。"
+            return "没有提取到有效词汇。"
 
         labels = [item[0] for item in word_counts]
         values = [item[1] for item in word_counts]
@@ -132,9 +130,9 @@ def generate_word_freq_chart(file_path):
         img_path = "chart_output.png"
         plt.savefig(img_path)
         plt.close()
-        return f"文档词频图表已生成，高频词包含：{labels[:3]}等"
+        return f"生成成功，高频词：{labels[:3]}等"
     except Exception as e:
-        return f"生成词频图表失败: {str(e)}"
+        return f"生成失败: {str(e)}"
 
 def generate_report(report_text):
     try:
@@ -143,9 +141,9 @@ def generate_report(report_text):
             md_content += "## 可视化图表\n![图表](chart_output.png)\n"
         with open("final_report.md", "w", encoding="utf-8") as f:
             f.write(md_content)
-        return "报告已生成：final_report.md"
+        return "报告已生成"
     except Exception as e:
-        return f"生成报告失败: {str(e)}"
+        return f"生成失败: {str(e)}"
 
 TOOLS_SCHEMA = [
     {"name": "read_document", "description": "读取TXT/PDF/Word/PPT等文档的文字内容", "parameters": {"file_path": "文件路径"}},
@@ -161,6 +159,6 @@ TOOLS_SCHEMA = [
             "chart_type": "图表类型，可选值：bar, line, pie。默认bar"
         }
     },
-    {"name": "generate_word_freq_chart", "description": "针对TXT/PDF/Word/PPT等文档生成高频词柱状图", "parameters": {"file_path": "文件路径"}},
+    {"name": "generate_word_freq_chart", "description": "针对文档生成高频词柱状图", "parameters": {"file_path": "文件路径"}},
     {"name": "generate_report", "description": "生成最终报告", "parameters": {"report_text": "报告内容"}}
 ]

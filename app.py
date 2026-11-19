@@ -1,10 +1,15 @@
 # app.py
 import streamlit as st
 import os
+import uuid
 from agent_core import run_agent
 
-st.set_page_config(page_title="通用文档分析 Agent", layout="wide")
+st.set_page_config(page_title="全能智能助理", layout="wide")
 st.title("📊 MiniWorkBuddy - 全能智能助理")
+
+# 清理历史脏数据
+if "agent_text" not in st.session_state:
+    st.session_state.agent_text = ""
 
 st.sidebar.header("1. 上传文件")
 uploaded_file = st.sidebar.file_uploader(
@@ -23,16 +28,21 @@ with col1:
         if uploaded_file is None:
             st.warning("请先上传文件！")
         else:
+            # 【修复残留】：每次执行前，先把服务器上旧的图表和报告删掉！
+            if os.path.exists("chart_output.png"): os.remove("chart_output.png")
+            if os.path.exists("final_report.md"): os.remove("final_report.md")
+            st.session_state.agent_text = ""
+
+            # 【修复串图】：生成一个唯一的 8 位随机码，防止不同文件互相覆盖！
+            unique_id = uuid.uuid4().hex[:8]
             file_ext = os.path.splitext(uploaded_file.name)[1]
-            file_path = f"uploaded_file{file_ext}"
+            file_path = f"uploaded_{unique_id}{file_ext}"
             
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
             st.session_state.running = True
             st.session_state.file_path = file_path
-            # 每次运行前清空之前的文本结果
-            st.session_state.agent_text = ""
 
     if st.session_state.get("running", False):
         st.subheader("3. 执行步骤 (ReAct)")
@@ -43,7 +53,6 @@ with col1:
             logs.append(text)
             status_area.markdown("\n\n".join(logs))
         
-        # 接收 Agent 返回的文本结果
         result_text = run_agent(user_task, st.session_state.file_path, status_callback=update_status)
         st.session_state.agent_text = result_text
         st.session_state.running = False
@@ -51,17 +60,15 @@ with col1:
 with col2:
     st.subheader("4. 交付结果")
     
-    # 【新增】：展示大模型直接输出的文字内容
     if st.session_state.get("agent_text"):
         st.info("🤖 智能体回复：")
         st.markdown(st.session_state.agent_text)
     
-    # 如果生成了文件，展示下载区
     if os.path.exists("final_report.md") or os.path.exists("chart_output.png"):
         st.divider()
         st.write("📁 附件下载区：")
         if os.path.exists("chart_output.png"):
-            st.image("chart_output.png", caption="数据图表")
+            st.image("chart_output.png", caption="最新生成的图表")
             with open("chart_output.png", "rb") as f:
                 st.download_button("⬇️ 下载图表", f, file_name="图表.png", mime="image/png")
         if os.path.exists("final_report.md"):
