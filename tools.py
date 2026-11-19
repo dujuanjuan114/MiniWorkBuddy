@@ -9,6 +9,7 @@ from pptx import Presentation
 import jieba
 from collections import Counter
 import urllib.request
+import json
 
 # ================= 暴力解决云端中文字体 =================
 font_path = "SimHei.ttf"
@@ -94,6 +95,38 @@ def generate_chart(file_path, x_col, y_col, chart_type="bar"):
     except Exception as e:
         return f"生成图表失败: {str(e)}"
 
+# 【新增】：万能画图工具，大模型自己提取数据传进来
+def generate_custom_chart(x_data_str, y_data_str, chart_type="line", title="数据分析图"):
+    try:
+        # 接收大模型传来的 JSON 字符串列表，并解析成 Python 列表
+        x_data = json.loads(x_data_str) if isinstance(x_data_str, str) else x_data_str
+        y_data = json.loads(y_data_str) if isinstance(y_data_str, str) else y_data_str
+        
+        # 确保 y_data 里的元素是数字
+        y_data = [float(y) for y in y_data]
+
+        plt.figure(figsize=(10, 5))
+        c_type = str(chart_type).lower()
+
+        if "line" in c_type or "折线" in c_type:
+            plt.plot(x_data, y_data, marker='o', color='#1f77b4', linewidth=2)
+        elif "pie" in c_type or "饼" in c_type:
+            # 饼图最多显示前8个，防止太乱
+            plt.pie(y_data[:8], labels=x_data[:8], autopct='%1.1f%%', startangle=90)
+        else:
+            plt.bar(x_data, y_data, color='skyblue')
+            
+        plt.title(title)
+        if "pie" not in c_type and "饼" not in c_type:
+            plt.xticks(rotation=45)
+            
+        plt.tight_layout()
+        plt.savefig("chart_output.png")
+        plt.close()
+        return f"成功根据自定义数据生成 {chart_type} 图表"
+    except Exception as e:
+        return f"生成自定义图表失败: {str(e)}"
+
 def generate_word_freq_chart(file_path):
     try:
         text = extract_text(file_path)
@@ -113,7 +146,6 @@ def generate_word_freq_chart(file_path):
         plt.bar(labels, values, color='coral')
         plt.title('文档高频关键词 Top 10')
         plt.xticks(rotation=45)
-        
         plt.savefig("chart_output.png")
         plt.close()
         return f"成功生成文档高频词图表"
@@ -133,7 +165,17 @@ TOOLS_SCHEMA = [
     {"name": "read_document", "description": "读取TXT/PDF/Word/PPT等文档的文字内容", "parameters": {"file_path": "文件路径"}},
     {"name": "read_csv", "description": "读取CSV表格数据", "parameters": {"file_path": "文件路径"}},
     {"name": "calculate_stats", "description": "计算CSV某列的总和和平均值", "parameters": {"file_path": "文件路径", "column_name": "列名"}},
-    {"name": "generate_chart", "description": "针对CSV表格生成图表", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴", "chart_type": "必须是bar、line或pie"}},
-    {"name": "generate_word_freq_chart", "description": "针对TXT/Word/PDF等文档生成高频词柱状图（当用户要求对非CSV文件画图时使用）", "parameters": {"file_path": "文件路径"}},
+    {"name": "generate_chart", "description": "针对CSV文件生成图表", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴", "chart_type": "bar、line或pie"}},
+    {
+        "name": "generate_custom_chart", 
+        "description": "从文档中提取具体数据后，生成自定义图表（如提取温度数据画折线图）。你需要自己从文本中提取 X 轴和 Y 轴的数据。", 
+        "parameters": {
+            "x_data_str": "X轴数据，必须是类似 '[\"11月1日\", \"11月2日\"]' 的 JSON 字符串格式", 
+            "y_data_str": "Y轴数据，必须是类似 '[\"20\", \"14\"]' 的 JSON 字符串格式", 
+            "chart_type": "bar、line或pie", 
+            "title": "图表标题"
+        }
+    },
+    {"name": "generate_word_freq_chart", "description": "针对文档生成高频词柱状图（如果用户只想看词频分布时使用）", "parameters": {"file_path": "文件路径"}},
     {"name": "generate_report", "description": "生成最终报告", "parameters": {"report_text": "报告内容"}}
 ]
