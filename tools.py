@@ -12,6 +12,7 @@ import urllib.request
 import json
 import base64
 from openai import OpenAI
+import fitz  # PyMuPDF
 
 # ================= 解决云端中文字体 =================
 font_path = "SimHei.ttf"
@@ -30,16 +31,43 @@ if os.path.exists(font_path):
 plt.rcParams['axes.unicode_minus'] = False
 # =======================================================
 
-def extract_text(file_path):
+def extract_text(file_path, zhipu_api_key=None):
     ext = os.path.splitext(file_path)[1].lower()
     text = ""
     try:
         if ext == '.txt':
             with open(file_path, 'r', encoding='utf-8') as f: text = f.read()
         elif ext == '.pdf':
+            # 1. 先尝试传统文本提取
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
-                for page in reader.pages: text += (page.extract_text() or "") + "\n"
+                for page in reader.pages: 
+                    text += (page.extract_text() or "") + "\n"
+            
+            # 2. 如果文字太少（小于50个字符），说明是图片型 PDF，启动视觉模型
+            if len(text.strip()) < 50 and zhipu_api_key:
+                print("检测到图片型PDF，启用视觉大模型识别...")
+                text = ""
+                doc = fitz.open(file_path)
+                # 为了防止超时，最多识别前3页
+                for page_num in range(min(3, len(doc))):
+                    page = doc[page_num]
+                    pix = page.get_pixmap()
+                    img_data = pix.tobytes("jpeg")
+                    base64_image = base64.b64encode(img_data).decode('utf-8')
+                    
+                    vision_client = OpenAI(api_key=zhipu_api_key, base_url="https://open.bigmodel.cn/api/paas/v4/")
+                    response = vision_client.chat.completions.create(
+                        model="glm-4v-flash",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "请精准提取图片中的文字。如果是表格，请用 Markdown 格式输出表格。"},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                            ]
+                        }]
+                    )
+                    text += f"\n--- 第 {page_num + 1} 页 ---\n" + response.choices[0].message.content
         elif ext == '.docx':
             doc = Document(file_path)
             text = "\n".join([para.text for para in doc.paragraphs])
@@ -48,27 +76,23 @@ def extract_text(file_path):
             for slide in prs.slides:
                 for shape in slide.shapes:
                     if hasattr(shape, "text"): text += shape.text + "\n"
-    except: pass
+    except Exception as e: 
+        return f"读取异常: {str(e)}"
     return text
 
-def read_document(file_path):
-    text = extract_text(file_path)
+def read_document(file_path, zhipu_api_key=None):
+    text = extract_text(file_path, zhipu_api_key)
     if not text: return "读取失败或文件为空。"
-    if len(text) > 3000: return f"文档读取成功（前3000字）：\n{text[:3000]}..."
+    if len(text) > 4000: return f"文档读取成功（部分内容）：\n{text[:4000]}..."
     return f"文档读取成功：\n{text}"
 
-# 【新增】：调用智谱视觉大模型识别图片文字/表格
 def read_image(file_path, zhipu_api_key):
     try:
-        # 将图片转为 Base64
         with open(file_path, "rb") as image_file:
             base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-        
-        # 初始化智谱客户端
         vision_client = OpenAI(api_key=zhipu_api_key, base_url="https://open.bigmodel.cn/api/paas/v4/")
-        
         response = vision_client.chat.completions.create(
-            model="glm-4v-flash", # 目前免费的视觉模型
+            model="glm-4v-flash",
             messages=[{
                 "role": "user",
                 "content": [
@@ -185,21 +209,12 @@ def generate_report(report_text):
     except Exception as e: return f"生成失败: {str(e)}"
 
 TOOLS_SCHEMA = [
-    {"name": "read_document", "description": "读取TXT/PDF/Word/PPT等纯文本文档", "parameters": {"file_path": "文件路径"}},
-    {"name": "read_image", "description": "识别图片(.png, .jpg)中的文字和表格。当上传的是图片时，必须用此工具", "parameters": {"file_path": "文件路径"}},
+    {"name": "read_document", "description": "读取TXT/PDF/Word/PPT文档。自动兼容扫描版图片PDF", "parameters": {"file_path": "文件路径"}},
+    {"name": "read_image", "description": "识别普通图片(.png, .jpg)中的文字和表格", "parameters": {"file_path": "文件路径"}},
     {"name": "read_csv", "description": "读取CSV表格数据", "parameters": {"file_path": "文件路径"}},
     {"name": "calculate_stats", "description": "计算CSV某列的总和和平均值", "parameters": {"file_path": "文件路径", "column_name": "列名"}},
-    {"name": "generate_chart", "description": "针对CSV文件生成单一维度的图表", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴", "chart_type": "bar、line或pie"}},
-    {
-        "name": "generate_custom_chart", 
-        "description": "从文本或图片中提取具体数据后，生成自定义图表。", 
-        "parameters": {
-            "x_data_str": "X轴数据，必须是类似 '[\"1月\", \"2月\"]' 的 JSON 字符串", 
-            "series_data_str": "多变量数据。必须是类似 '{\"销量\": [100, 200]}' 的字典 JSON 字符串", 
-            "chart_type": "bar、line或pie", 
-            "title": "图表标题"
-        }
-    },
-    {"name": "generate_word_freq_chart", "description": "针对纯文本文档生成高频词柱状图", "parameters": {"file_path": "文件路径"}},
+    {"name": "generate_chart", "description": "针对CSV文件生成图表", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴", "chart_type": "bar、line或pie"}},
+    {"name": "generate_custom_chart", "description": "根据提取的数据生成多变量图表", "parameters": {"x_data_str": "X轴JSON", "series_data_str": "Y轴JSON", "chart_type": "bar、line或pie", "title": "标题"}},
+    {"name": "generate_word_freq_chart", "description": "针对文档生成高频词柱状图", "parameters": {"file_path": "文件路径"}},
     {"name": "generate_report", "description": "生成最终报告", "parameters": {"report_text": "报告内容"}}
 ]
