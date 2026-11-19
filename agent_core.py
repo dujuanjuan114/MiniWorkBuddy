@@ -31,14 +31,17 @@ for tool in tools.TOOLS_SCHEMA:
 def run_agent(user_task, file_path, status_callback=None):
     ext = os.path.splitext(file_path)[1].lower()
     
-    # 【强化指令】：绝不允许用中文当参数
-    system_prompt = f"""你是一个数据助理。当前文件路径：'{file_path}'，类型：'{ext}'。
-如果你要画CSV的图，必须调用 `generate_chart`。
-非常严格的要求：
-- 如果要画折线图，`chart_type` 必须且只能填 "line"。
-- 如果要画饼图，`chart_type` 必须且只能填 "pie"。
-- 如果要画柱状图，`chart_type` 必须且只能填 "bar"。
-绝对不允许填中文！"""
+    # 【核心修复】：明确告诉大模型，文档和表格是两条画图路线！
+    system_prompt = f"""你是一个强大的数据分析与文档处理助手。当前文件路径：'{file_path}'，文件类型：'{ext}'。
+
+请严格根据文件类型执行操作：
+1. 【如果是 .csv 文件】：如果用户要求画图，必须调用 `generate_chart`。
+   - 画折线图，`chart_type` 填 "line"。
+   - 画饼图，`chart_type` 填 "pie"。
+   - 画柱状图，`chart_type` 填 "bar"。
+2. 【如果是 .txt, .pdf, .docx, .pptx 等文档】：如果用户要求画图（比如提取关键词画图），**必须调用 `generate_word_freq_chart`**。这个工具会自动分析文档并画图。
+3. 【如果用户要求总结文档】：调用 `read_document`，然后直接在对话中输出总结，不要画图。
+4. 只有当用户明确要求“生成报告文件”时，才调用 generate_report。"""
 
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_task}]
     
@@ -68,10 +71,11 @@ def run_agent(user_task, file_path, status_callback=None):
             elif func_name == "read_csv": result = tools.read_csv(args.get("file_path", file_path))
             elif func_name == "calculate_stats": result = tools.calculate_stats(args.get("file_path", file_path), args.get("column_name"))
             elif func_name == "generate_chart": 
-                # 直接原样传进去，tools里会做模糊匹配
                 result = tools.generate_chart(args.get("file_path", file_path), args.get("x_col"), args.get("y_col"), args.get("chart_type", "bar"))
-            elif func_name == "generate_word_freq_chart": result = tools.generate_word_freq_chart(args.get("file_path", file_path))
-            elif func_name == "generate_report": result = tools.generate_report(args.get("report_text"))
+            elif func_name == "generate_word_freq_chart": 
+                result = tools.generate_word_freq_chart(args.get("file_path", file_path))
+            elif func_name == "generate_report": 
+                result = tools.generate_report(args.get("report_text"))
 
             if status_callback: status_callback(f"  -> 结果: {str(result)[:50]}...") 
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})

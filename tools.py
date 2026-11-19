@@ -11,7 +11,6 @@ from collections import Counter
 import urllib.request
 
 # ================= 暴力解决云端中文字体 =================
-# 我们直接用代码在当前目录生成一个字体文件，避开云端的所有干扰
 font_path = "SimHei.ttf"
 if not os.path.exists(font_path):
     try:
@@ -20,12 +19,11 @@ if not os.path.exists(font_path):
     except Exception:
         pass
 
-# 强制刷新字体缓存，并设置为全局首选字体
 if os.path.exists(font_path):
     fm.fontManager.addfont(font_path)
     prop = fm.FontProperties(fname=font_path)
     plt.rcParams['font.family'] = prop.get_name()
-    plt.rcParams['font.sans-serif'] = [prop.get_name()] # 双重保险
+    plt.rcParams['font.sans-serif'] = [prop.get_name()]
 plt.rcParams['axes.unicode_minus'] = False
 # =======================================================
 
@@ -65,7 +63,7 @@ def read_csv(file_path):
 def calculate_stats(file_path, column_name):
     try:
         df = pd.read_csv(file_path)
-        if column_name not in df.columns: return f"错误：不存在 '{column_name}'。"
+        if column_name not in df.columns: return f"错误：不存在 '{column_name}'。现有列：{list(df.columns)}"
         return f"列 '{column_name}' 总和 = {df[column_name].sum()}, 平均值 = {df[column_name].mean():.2f}"
     except Exception as e: return f"计算失败: {str(e)}"
 
@@ -74,7 +72,6 @@ def generate_chart(file_path, x_col, y_col, chart_type="bar"):
         df = pd.read_csv(file_path)
         plt.figure(figsize=(8, 5))
         
-        # 【核心修复】：模糊匹配，防止大模型乱填中文
         c_type = str(chart_type).lower()
         if "line" in c_type or "折线" in c_type:
             plt.plot(df[x_col], df[y_col], marker='o', color='#1f77b4', linewidth=2)
@@ -103,8 +100,8 @@ def generate_word_freq_chart(file_path):
         if not text: return "文档内容为空。"
         
         words = jieba.lcut(text)
-        stop_words = ['我们', '可以', '这个', '没有', '就是', '一个', '进行', '通过']
-        words = [w for w in words if len(w) > 1 and not w.isdigit() and w not in stop_words]
+        stop_words = ['我们', '可以', '这个', '没有', '就是', '一个', '进行', '通过', '如果', '以及', '因为', '所以', '他们', '自己', '现在', '什么']
+        words = [w for w in words if len(w) > 1 and not w.isdigit() and w not in stop_words and w.strip() != '']
         
         word_counts = Counter(words).most_common(10)
         if not word_counts: return "未提取到有效词汇。"
@@ -116,11 +113,12 @@ def generate_word_freq_chart(file_path):
         plt.bar(labels, values, color='coral')
         plt.title('文档高频关键词 Top 10')
         plt.xticks(rotation=45)
+        
         plt.savefig("chart_output.png")
         plt.close()
-        return f"生成成功"
+        return f"成功生成文档高频词图表"
     except Exception as e:
-        return f"生成失败: {str(e)}"
+        return f"生成词频图表失败: {str(e)}"
 
 def generate_report(report_text):
     try:
@@ -136,6 +134,6 @@ TOOLS_SCHEMA = [
     {"name": "read_csv", "description": "读取CSV表格数据", "parameters": {"file_path": "文件路径"}},
     {"name": "calculate_stats", "description": "计算CSV某列的总和和平均值", "parameters": {"file_path": "文件路径", "column_name": "列名"}},
     {"name": "generate_chart", "description": "针对CSV表格生成图表", "parameters": {"file_path": "文件路径", "x_col": "X轴", "y_col": "Y轴", "chart_type": "必须是bar、line或pie"}},
-    {"name": "generate_word_freq_chart", "description": "针对文档生成高频词柱状图", "parameters": {"file_path": "文件路径"}},
+    {"name": "generate_word_freq_chart", "description": "针对TXT/Word/PDF等文档生成高频词柱状图（当用户要求对非CSV文件画图时使用）", "parameters": {"file_path": "文件路径"}},
     {"name": "generate_report", "description": "生成最终报告", "parameters": {"report_text": "报告内容"}}
 ]

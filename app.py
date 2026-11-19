@@ -28,7 +28,6 @@ with col1:
         if uploaded_file is None:
             st.warning("请先上传文件！")
         else:
-            # 【彻底清理】：每次开始前，强行删掉旧文件！
             if os.path.exists("chart_output.png"): 
                 try: os.remove("chart_output.png")
                 except: pass
@@ -37,7 +36,7 @@ with col1:
                 except: pass
                 
             st.session_state.agent_text = ""
-            st.session_state.has_run = False # 重置状态，强行让前端不渲染旧图
+            st.session_state.has_run = False
             
             unique_id = uuid.uuid4().hex[:8]
             file_ext = os.path.splitext(uploaded_file.name)[1]
@@ -61,7 +60,7 @@ with col1:
         result_text = run_agent(user_task, st.session_state.file_path, status_callback=update_status)
         st.session_state.agent_text = result_text
         st.session_state.running = False
-        st.session_state.has_run = True # 执行完毕，允许渲染
+        st.session_state.has_run = True
 
 with col2:
     st.subheader("4. 交付结果")
@@ -70,7 +69,6 @@ with col2:
         st.info("🤖 智能体回复：")
         st.markdown(st.session_state.agent_text)
     
-    # 【彻底防残留】：只有这次运行过了，且文件存在，才显示
     if st.session_state.get("has_run", False):
         if os.path.exists("chart_output.png") or os.path.exists("final_report.md"):
             st.divider()
