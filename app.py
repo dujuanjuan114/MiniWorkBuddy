@@ -12,8 +12,8 @@ if "agent_text" not in st.session_state:
 if "has_run" not in st.session_state:
     st.session_state.has_run = False
 
-st.sidebar.header("1. 上传文件")
-# 【修改】：增加图片后缀支持
+st.sidebar.header("1. 上传文件（可选）")
+# 增加提示：可选
 uploaded_file = st.sidebar.file_uploader(
     "支持 CSV, TXT, PDF, Word, PPT, 图片", 
     type=["csv", "txt", "pdf", "docx", "pptx", "png", "jpg", "jpeg"]
@@ -23,12 +23,14 @@ col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("2. 下达任务")
-    user_task = st.text_area("指令：", "帮我读取这个图片里的表格，并画成柱状图。", height=100)
+    # 【修改】：初始默认为空
+    user_task = st.text_area("指令：", height=100)
     
     if st.button("🚀 开始执行", type="primary"):
-        if uploaded_file is None:
-            st.warning("请先上传文件！")
+        if not user_task.strip():
+            st.warning("请输入任务指令！")
         else:
+            # 每次执行前，清理旧文件
             if os.path.exists("chart_output.png"): 
                 try: os.remove("chart_output.png")
                 except: pass
@@ -39,12 +41,15 @@ with col1:
             st.session_state.agent_text = ""
             st.session_state.has_run = False
             
-            unique_id = uuid.uuid4().hex[:8]
-            file_ext = os.path.splitext(uploaded_file.name)[1]
-            file_path = f"uploaded_{unique_id}{file_ext}"
-            
-            with open(file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            # 【修改】：如果有文件，保存文件；如果没有，路径传 None
+            if uploaded_file is not None:
+                unique_id = uuid.uuid4().hex[:8]
+                file_ext = os.path.splitext(uploaded_file.name)[1]
+                file_path = f"uploaded_{unique_id}{file_ext}"
+                with open(file_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+            else:
+                file_path = None
             
             st.session_state.running = True
             st.session_state.file_path = file_path
