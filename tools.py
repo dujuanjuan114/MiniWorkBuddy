@@ -38,18 +38,17 @@ def extract_text(file_path, zhipu_api_key=None):
         if ext == '.txt':
             with open(file_path, 'r', encoding='utf-8') as f: text = f.read()
         elif ext == '.pdf':
-            # 1. 先尝试传统文本提取
+            # 尝试普通文本提取
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 for page in reader.pages: 
                     text += (page.extract_text() or "") + "\n"
             
-            # 2. 如果文字太少（小于50个字符），说明是图片型 PDF，启动视觉模型
+            # 如果文本极少，判定为图片型PDF，启动视觉模型
             if len(text.strip()) < 50 and zhipu_api_key:
-                print("检测到图片型PDF，启用视觉大模型识别...")
                 text = ""
                 doc = fitz.open(file_path)
-                # 为了防止超时，最多识别前3页
+                # 最多识别前 3 页，防止扣费过多
                 for page_num in range(min(3, len(doc))):
                     page = doc[page_num]
                     pix = page.get_pixmap()
@@ -62,7 +61,7 @@ def extract_text(file_path, zhipu_api_key=None):
                         messages=[{
                             "role": "user",
                             "content": [
-                                {"type": "text", "text": "请精准提取图片中的文字。如果是表格，请用 Markdown 格式输出表格。"},
+                                {"type": "text", "text": "请精准提取图片中的文字，如果是表格请用Markdown输出。"},
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                             ]
                         }]
@@ -83,7 +82,9 @@ def extract_text(file_path, zhipu_api_key=None):
 def read_document(file_path, zhipu_api_key=None):
     text = extract_text(file_path, zhipu_api_key)
     if not text: return "读取失败或文件为空。"
-    if len(text) > 4000: return f"文档读取成功（部分内容）：\n{text[:4000]}..."
+    # 【已放宽】：截断限制改为 8000 字
+    if len(text) > 8000:
+        return f"文档读取成功（前8000字）：\n{text[:8000]}...\n(内容过长已截断)"
     return f"文档读取成功：\n{text}"
 
 def read_image(file_path, zhipu_api_key):
@@ -101,7 +102,11 @@ def read_image(file_path, zhipu_api_key):
                 ]
             }]
         )
-        return f"图片识别成功，内容如下：\n{response.choices[0].message.content}"
+        res_content = response.choices[0].message.content
+        # 【已放宽】：截断限制改为 8000 字
+        if len(res_content) > 8000:
+            res_content = res_content[:8000] + "\n...(图片内容过长已截断)"
+        return f"图片识别成功，内容如下：\n{res_content}"
     except Exception as e:
         return f"图片识别失败: {str(e)}"
 

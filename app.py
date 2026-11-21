@@ -7,13 +7,11 @@ from agent_core import run_agent
 st.set_page_config(page_title="全能智能助理", layout="wide")
 st.title("📊 MiniWorkBuddy - 全能智能助理")
 
-if "agent_text" not in st.session_state:
-    st.session_state.agent_text = ""
-if "has_run" not in st.session_state:
-    st.session_state.has_run = False
+if "agent_text" not in st.session_state: st.session_state.agent_text = ""
+if "has_run" not in st.session_state: st.session_state.has_run = False
+if "running" not in st.session_state: st.session_state.running = False
 
 st.sidebar.header("1. 上传文件（可选）")
-# 增加提示：可选
 uploaded_file = st.sidebar.file_uploader(
     "支持 CSV, TXT, PDF, Word, PPT, 图片", 
     type=["csv", "txt", "pdf", "docx", "pptx", "png", "jpg", "jpeg"]
@@ -23,14 +21,13 @@ col1, col2 = st.columns([1, 1])
 
 with col1:
     st.subheader("2. 下达任务")
-    # 【修改】：初始默认为空
     user_task = st.text_area("指令：", height=100)
     
     if st.button("🚀 开始执行", type="primary"):
         if not user_task.strip():
             st.warning("请输入任务指令！")
         else:
-            # 每次执行前，清理旧文件
+            # 强制清理上一次的图表和报告
             if os.path.exists("chart_output.png"): 
                 try: os.remove("chart_output.png")
                 except: pass
@@ -41,7 +38,6 @@ with col1:
             st.session_state.agent_text = ""
             st.session_state.has_run = False
             
-            # 【修改】：如果有文件，保存文件；如果没有，路径传 None
             if uploaded_file is not None:
                 unique_id = uuid.uuid4().hex[:8]
                 file_ext = os.path.splitext(uploaded_file.name)[1]
@@ -88,5 +84,3 @@ with col2:
                     st.download_button("⬇️ 下载报告文件", f.read(), file_name="报告.md")
         else:
             st.info("本次没有生成图表或报告文件。")
-    elif not st.session_state.get("agent_text"):
-        st.info("等待执行...")

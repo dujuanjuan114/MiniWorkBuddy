@@ -36,28 +36,29 @@ def run_agent(user_task, file_path, status_callback=None):
     if file_path and os.path.exists(file_path):
         ext = os.path.splitext(file_path)[1].lower()
         file_context = f"当前用户上传了文件，路径：'{file_path}'，类型：'{ext}'。"
-        rules = """规则如下：
-1. 如果是 PDF 或 Word 等文档，必须先调用 `read_document`。
-2. 如果是普通图片 (.jpg, .png)，必须调用 `read_image`。
-3. 如果读到了数据，根据需求调用 `generate_custom_chart` 画图。"""
+        rules = """规则：
+1. PDF/Word 等文档，先用 `read_document`。
+2. 普通图片 (.jpg, .png)，先用 `read_image`。
+3. 提取到数据后，用 `generate_custom_chart` 画图。"""
     else:
         file_context = "当前用户没有上传任何文件。"
-        rules = "如果用户口述数据要求画图，请自己构造 JSON 数据，调用 `generate_custom_chart`。"
+        rules = "如果用户口述数据要求画图，请构造 JSON 数据，调用 `generate_custom_chart`。"
 
     system_prompt = f"""你是一个极其强大的全能数据助理。{file_context}
 {rules}
-画自定义图时，参数必须是标准的 JSON 字符串格式（双引号）。"""
+【格式警告】：画图时，参数必须是标准的 JSON 字符串格式（双引号）。"""
 
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_task}]
     
     step_count = 0
-    while step_count < 8:
+    # 【防失控锁】：最大循环 4 次，防止 API 爆炸
+    while step_count < 4:
         step_count += 1
         try:
             response = client.chat.completions.create(model="deepseek-chat", messages=messages, tools=function_schemas, tool_choice="auto")
         except Exception as e:
             if status_callback: status_callback(f"❌ API 调用失败: {str(e)}")
-            return "API 调用失败。"
+            return "API 调用失败，已停止重试。"
 
         msg = response.choices[0].message
         messages.append(msg)
@@ -68,32 +69,39 @@ def run_agent(user_task, file_path, status_callback=None):
 
         for tool_call in msg.tool_calls:
             func_name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments)
+            try:
+                args = json.loads(tool_call.function.arguments)
+            except Exception:
+                args = {}
+                
             if status_callback: status_callback(f"【步骤{step_count}】调用工具: `{func_name}`")
 
             result = ""
-            # 【重点】：传入了 ZHIPU_API_KEY 给文档读取工具，支持扫描版 PDF
-            if func_name == "read_document": 
-                result = tools.read_document(args.get("file_path", file_path), ZHIPU_API_KEY)
-            elif func_name == "read_image": 
-                result = tools.read_image(args.get("file_path", file_path), ZHIPU_API_KEY)
-            elif func_name == "read_csv": 
-                result = tools.read_csv(args.get("file_path", file_path))
-            elif func_name == "calculate_stats": 
-                result = tools.calculate_stats(args.get("file_path", file_path), args.get("column_name"))
-            elif func_name == "generate_chart": 
-                result = tools.generate_chart(args.get("file_path", file_path), args.get("x_col"), args.get("y_col"), args.get("chart_type", "bar"))
-            elif func_name == "generate_custom_chart":
-                result = tools.generate_custom_chart(args.get("x_data_str", "[]"), args.get("series_data_str", "{}"), args.get("chart_type", "line"), args.get("title", "数据分析"))
-            elif func_name == "generate_word_freq_chart": 
-                result = tools.generate_word_freq_chart(args.get("file_path", file_path))
-            elif func_name == "generate_report": 
-                result = tools.generate_report(args.get("report_text"))
+            try:
+                if func_name == "read_document": 
+                    result = tools.read_document(args.get("file_path", file_path), ZHIPU_API_KEY)
+                elif func_name == "read_image": 
+                    result = tools.read_image(args.get("file_path", file_path), ZHIPU_API_KEY)
+                elif func_name == "read_csv": 
+                    result = tools.read_csv(args.get("file_path", file_path))
+                elif func_name == "calculate_stats": 
+                    result = tools.calculate_stats(args.get("file_path", file_path), args.get("column_name"))
+                elif func_name == "generate_chart": 
+                    result = tools.generate_chart(args.get("file_path", file_path), args.get("x_col"), args.get("y_col"), args.get("chart_type", "bar"))
+                elif func_name == "generate_custom_chart":
+                    result = tools.generate_custom_chart(args.get("x_data_str", "[]"), args.get("series_data_str", "{}"), args.get("chart_type", "line"), args.get("title", "数据分析"))
+                elif func_name == "generate_word_freq_chart": 
+                    result = tools.generate_word_freq_chart(args.get("file_path", file_path))
+                elif func_name == "generate_report": 
+                    result = tools.generate_report(args.get("report_text"))
+            except Exception as e:
+                result = f"工具执行报错: {str(e)}"
 
-            if status_callback: status_callback(f"  -> 结果: {str(result)[:50]}...") 
+            if status_callback: status_callback(f"  -> 结果: {str(result)[:30]}...") 
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
 
             if func_name == "generate_report":
                 if status_callback: status_callback("✅ 报告生成完毕。")
                 return "报告已生成。"
-    return "超时终止。"
+                
+    return "已达最大执行次数限制，强制中止（防止扣费）。"
