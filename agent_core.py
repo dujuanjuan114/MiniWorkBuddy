@@ -5,6 +5,7 @@ import streamlit as st
 from openai import OpenAI
 import tools
 
+# ================= 安全读取 API Key =================
 try:
     API_KEY = st.secrets["DEEPSEEK_API_KEY"]
     ZHIPU_API_KEY = st.secrets["ZHIPU_API_KEY"]
@@ -15,8 +16,10 @@ except Exception:
 if not API_KEY: API_KEY = "" 
 if not ZHIPU_API_KEY: ZHIPU_API_KEY = ""
 
+# 【修改点1】：使用免费的智谱模型作为大脑
 client = OpenAI(api_key=ZHIPU_API_KEY, base_url="https://open.bigmodel.cn/api/paas/v4/")
 
+# 构建给大模型看的函数调用格式
 function_schemas = []
 for tool in tools.TOOLS_SCHEMA:
     function_schemas.append({
@@ -51,11 +54,17 @@ def run_agent(user_task, file_path, status_callback=None):
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_task}]
     
     step_count = 0
-    # 【防失控锁】：最大循环 4 次，防止 API 爆炸
     while step_count < 4:
         step_count += 1
         try:
-response = client.chat.completions.create(model="glm-4-flash", messages=messages, tools=function_schemas, tool_choice="auto")        except Exception as e:
+            # 【修改点2】：使用免费的 glm-4-flash 模型
+            response = client.chat.completions.create(
+                model="glm-4-flash", 
+                messages=messages, 
+                tools=function_schemas, 
+                tool_choice="auto"
+            )
+        except Exception as e:
             if status_callback: status_callback(f"❌ API 调用失败: {str(e)}")
             return "API 调用失败，已停止重试。"
 
@@ -97,7 +106,13 @@ response = client.chat.completions.create(model="glm-4-flash", messages=messages
                 result = f"工具执行报错: {str(e)}"
 
             if status_callback: status_callback(f"  -> 结果: {str(result)[:30]}...") 
-            messages.append({"role": "tool", "tool_call_id": tool_call.id, "name": func_name, "content": result})
+            
+            messages.append({
+                "role": "tool", 
+                "tool_call_id": tool_call.id, 
+                "name": func_name, 
+                "content": result
+            })
 
             if func_name == "generate_report":
                 if status_callback: status_callback("✅ 报告生成完毕。")
