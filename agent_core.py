@@ -5,7 +5,6 @@ import streamlit as st
 from openai import OpenAI
 import tools
 
-# ================= 安全读取 API Key =================
 try:
     API_KEY = st.secrets["DEEPSEEK_API_KEY"]
     ZHIPU_API_KEY = st.secrets["ZHIPU_API_KEY"]
@@ -16,10 +15,9 @@ except Exception:
 if not API_KEY: API_KEY = "" 
 if not ZHIPU_API_KEY: ZHIPU_API_KEY = ""
 
-# 【修改点1】：使用免费的智谱模型作为大脑
+# 使用免费的智谱模型
 client = OpenAI(api_key=ZHIPU_API_KEY, base_url="https://open.bigmodel.cn/api/paas/v4/")
 
-# 构建给大模型看的函数调用格式
 function_schemas = []
 for tool in tools.TOOLS_SCHEMA:
     function_schemas.append({
@@ -39,25 +37,31 @@ def run_agent(user_task, file_path, status_callback=None):
     if file_path and os.path.exists(file_path):
         ext = os.path.splitext(file_path)[1].lower()
         file_context = f"当前用户上传了文件，路径：'{file_path}'，类型：'{ext}'。"
-        rules = """规则：
-1. PDF/Word 等文档，先用 `read_document`。
-2. 普通图片 (.jpg, .png)，先用 `read_image`。
-3. 提取到数据后，用 `generate_custom_chart` 画图。"""
+        
+        # 【究极强化】：逼迫模型必须走正确的分支
+        rules = """【强制执行纪律】：
+1. 如果文件是 .pdf, .docx, .pptx, .txt，你必须**第一步**就调用 `read_document` 读取全文。
+2. 如果文件是图片 (.jpg, .png, .jpeg)，你必须**第一步**就调用 `read_image`。
+3. 在读取完内容后，如果你需要用数据画图（比如提取日期和气温），**绝不允许只用柱状图工具**。你必须自己从文本中提取数据，然后调用 `generate_custom_chart` 工具，传给它 JSON 格式的 X 轴和 Y 轴数据。
+4. 如果你想画词频图，才用 `generate_word_freq_chart`。
+5. 如果文件是 .csv，且只需简单画图，才用 `generate_chart`。
+6. 严格遵循上述规则，禁止跳过读取直接回答，禁止说做不到，你拥有所有工具权限！"""
+
     else:
         file_context = "当前用户没有上传任何文件。"
-        rules = "如果用户口述数据要求画图，请构造 JSON 数据，调用 `generate_custom_chart`。"
+        rules = "如果用户口述数据要求画图，请自己构造 JSON 数据，严格调用 `generate_custom_chart` 工具生成图表。"
 
     system_prompt = f"""你是一个极其强大的全能数据助理。{file_context}
 {rules}
-【格式警告】：画图时，参数必须是标准的 JSON 字符串格式（双引号）。"""
+【JSON格式严格警告】：在调用 `generate_custom_chart` 时，参数 `x_data_str` 必须类似于 '["1月", "2月"]'，`series_data_str` 必须类似于 '{{"销量": [10, 20], "利润": [5, 10]}}'。必须是双引号，绝对不能用单引号或中文符号！"""
 
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_task}]
     
     step_count = 0
-    while step_count < 4:
+    # 【解除限制】：给足 8 次机会，让它慢慢思考
+    while step_count < 8:
         step_count += 1
         try:
-            # 【修改点2】：使用免费的 glm-4-flash 模型
             response = client.chat.completions.create(
                 model="glm-4-flash", 
                 messages=messages, 
@@ -66,7 +70,7 @@ def run_agent(user_task, file_path, status_callback=None):
             )
         except Exception as e:
             if status_callback: status_callback(f"❌ API 调用失败: {str(e)}")
-            return "API 调用失败，已停止重试。"
+            return "API 调用失败，请稍后重试。"
 
         msg = response.choices[0].message
         messages.append(msg)
@@ -118,4 +122,4 @@ def run_agent(user_task, file_path, status_callback=None):
                 if status_callback: status_callback("✅ 报告生成完毕。")
                 return "报告已生成。"
                 
-    return "已达最大执行次数限制，强制中止（防止扣费）。"
+    return "达到最大执行次数，任务终止。"
