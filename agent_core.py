@@ -15,7 +15,7 @@ except Exception:
 if not API_KEY: API_KEY = "" 
 if not ZHIPU_API_KEY: ZHIPU_API_KEY = ""
 
-client = OpenAI(api_key=API_KEY, base_url="https://api.deepseek.com")
+client = OpenAI(api_key=ZHIPU_API_KEY, base_url="https://open.bigmodel.cn/api/paas/v4/")
 
 function_schemas = []
 for tool in tools.TOOLS_SCHEMA:
@@ -55,8 +55,7 @@ def run_agent(user_task, file_path, status_callback=None):
     while step_count < 4:
         step_count += 1
         try:
-            response = client.chat.completions.create(model="deepseek-chat", messages=messages, tools=function_schemas, tool_choice="auto")
-        except Exception as e:
+response = client.chat.completions.create(model="glm-4-flash", messages=messages, tools=function_schemas, tool_choice="auto")        except Exception as e:
             if status_callback: status_callback(f"❌ API 调用失败: {str(e)}")
             return "API 调用失败，已停止重试。"
 
